@@ -17,78 +17,31 @@ function add_voyageurs_menu() {
 }
 add_action('admin_menu', 'add_voyageurs_menu');
 
-// Fonction pour obtenir les destinations les plus fréquentes
-function get_most_common_destinations($files) {
-    $destinations = [];
-    foreach ($files as $file) {
-        $filename = basename($file);
-        // Modification du regex pour extraire correctement la destination
-        preg_match('/\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_([^_]+)_/', $filename, $matches);
-        if (isset($matches[1])) {
-            $dest = urldecode($matches[1]);
-            $destinations[$dest] = ($destinations[$dest] ?? 0) + 1;
-        }
-    }
-    arsort($destinations);
-    return array_slice($destinations, 0, 5);
-}
-
-function add_voyageurs_statistics_section($files) {
-    $destinations = [];
-    foreach ($files as $file) {
-        $filename = basename($file);
-        preg_match('/\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_([^_]+)_/', $filename, $matches);
-        if (isset($matches[1])) {
-            $dest = urldecode($matches[1]);
-            $destinations[] = $dest;
-        }
-    }
-
-    $stats = [
-        'total_files' => count($files),
-        'files_today' => count(array_filter($files, function($file) {
-            return date('Y-m-d', filemtime($file)) === date('Y-m-d');
-        })),
-        'total_destinations' => count(array_unique($destinations)),
-        'most_common_destinations' => get_most_common_destinations($files)
-    ];
-
-    ?>
-    <div class="voyageurs-statistics">
-        <h2>Statistiques des Voyageurs</h2>
-        <div class="stats-grid">
-            <div class="stat-box">
-                <h3>Nombre total de programmes</h3>
-                <p><?php echo $stats['total_files']; ?></p>
-            </div>
-            <div class="stat-box">
-                <h3>Programmes aujourd'hui</h3>
-                <p><?php echo $stats['files_today']; ?></p>
-            </div>
-            <div class="stat-box">
-                <h3>Nombre de destinations</h3>
-                <p><?php echo $stats['total_destinations']; ?></p>
-            </div>
-        </div>
-        <h3>Destinations les plus fréquentes</h3>
-        <table class="wp-list-table widefat">
-            <?php foreach($stats['most_common_destinations'] as $dest => $count): ?>
-                <tr>
-                    <td><?php echo esc_html($dest); ?></td>
-                    <td><?php echo $count; ?> programmes</td>
-                </tr>
-            <?php endforeach; ?>
-        </table>
-    </div>
-    <?php
-}
-
-// Styles CSS
+// Styles CSS et Scripts
 function add_txt_admin_styles() {
+    // Enregistrer et charger Chart.js
+    wp_register_script('chartjs', 'https://cdn.jsdelivr.net/npm/chart.js', array('jquery'), '3.7.0', true);
+    wp_enqueue_script('chartjs');
+
     ?>
     <style>
-        .stats-grid {
+        .voyageurs-statistics-container {
             display: flex;
+            gap: 30px;
+            margin: 20px 0;
+        }
+        .voyageurs-statistics,
+        .voyageurs-chart {
+            flex: 1;
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            width: 48%;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
             gap: 15px;
             margin-bottom: 20px;
         }
@@ -97,9 +50,46 @@ function add_txt_admin_styles() {
             border: 1px solid #e9ecef;
             padding: 15px;
             text-align: center;
-            flex: 1;
+            border-radius: 6px;
         }
-        /* Styles modifiés pour la fenêtre modale */
+        .stat-box h3 {
+            color: #1B8C8E;
+            margin: 0 0 10px 0;
+            font-size: 14px;
+        }
+        .stat-box p {
+            font-size: 24px;
+            margin: 0;
+            color: #333;
+        }
+        .busiest-days {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 20px;
+        }
+        .days-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .day-stat {
+            background: white;
+            padding: 10px;
+            border-radius: 4px;
+            border-left: 3px solid #1B8C8E;
+        }
+        .day-stat .day {
+            display: block;
+            color: #1B8C8E;
+            font-weight: bold;
+        }
+        .day-stat .count {
+            display: block;
+            font-size: 0.9em;
+            color: #666;
+        }
         #txt-file-modal .media-modal {
             width: 90%;
             left: 5%;
@@ -135,10 +125,194 @@ function add_txt_admin_styles() {
         #txt-file-modal .form-table {
             margin-top: 20px;
         }
+        @media (max-width: 768px) {
+            .voyageurs-statistics-container {
+                flex-direction: column;
+            }
+            .voyageurs-statistics,
+            .voyageurs-chart {
+                width: 100%;
+            }
+            .stats-grid,
+            .days-grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
     <?php
 }
-add_action('admin_head', 'add_txt_admin_styles');
+add_action('admin_enqueue_scripts', 'add_txt_admin_styles');
+
+// Fonction pour obtenir les destinations les plus fréquentes
+function get_most_common_destinations($files) {
+    $destinations = [];
+    foreach ($files as $file) {
+        $filename = basename($file);
+        preg_match('/\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_([^_]+)_/', $filename, $matches);
+        if (isset($matches[1])) {
+            $dest = urldecode($matches[1]);
+            $destinations[$dest] = ($destinations[$dest] ?? 0) + 1;
+        }
+    }
+    arsort($destinations);
+    return array_slice($destinations, 0, 5);
+}
+
+function add_voyageurs_statistics_section($files) {
+    $destinations = [];
+    $days_activity = [];
+    
+    foreach ($files as $file) {
+        $filename = basename($file);
+        preg_match('/\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_([^_]+)_/', $filename, $matches);
+        if (isset($matches[1])) {
+            $dest = urldecode($matches[1]);
+            $destinations[] = $dest;
+        }
+        
+        // Compter l'activité par jour
+        $day = date('l', filemtime($file));
+        $days_activity[$day] = ($days_activity[$day] ?? 0) + 1;
+    }
+    arsort($days_activity);
+
+    $stats = [
+        'total_files' => count($files),
+        'files_today' => count(array_filter($files, function($file) {
+            return date('Y-m-d', filemtime($file)) === date('Y-m-d');
+        })),
+        'total_destinations' => count(array_unique($destinations)),
+        'most_common_destinations' => get_most_common_destinations($files),
+        'this_week' => count(array_filter($files, function($file) {
+            return strtotime(date('Y-m-d', filemtime($file))) >= strtotime('-7 days');
+        })),
+        'this_month' => count(array_filter($files, function($file) {
+            return date('Y-m', filemtime($file)) === date('Y-m');
+        })),
+        'average_per_day' => round(count($files) / max(1, count(array_unique(array_map(function($file) {
+            return date('Y-m-d', filemtime($file));
+        }, $files)))), 1),
+        'busiest_days' => array_slice($days_activity, 0, 3)
+    ];
+
+    ?>
+    <div class="voyageurs-statistics-container">
+        <!-- Colonne de gauche -->
+        <div class="voyageurs-statistics">
+            <h2>Statistiques des Voyageurs</h2>
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <h3>Nombre total de programmes</h3>
+                    <p><?php echo $stats['total_files']; ?></p>
+                </div>
+                <div class="stat-box">
+                    <h3>Programmes aujourd'hui</h3>
+                    <p><?php echo $stats['files_today']; ?></p>
+                </div>
+                <div class="stat-box">
+                    <h3>Nombre de destinations</h3>
+                    <p><?php echo $stats['total_destinations']; ?></p>
+                </div>
+                <div class="stat-box">
+                    <h3>Cette semaine</h3>
+                    <p><?php echo $stats['this_week']; ?></p>
+                </div>
+                <div class="stat-box">
+                    <h3>Ce mois</h3>
+                    <p><?php echo $stats['this_month']; ?></p>
+                </div>
+                <div class="stat-box">
+                    <h3>Moyenne par jour</h3>
+                    <p><?php echo $stats['average_per_day']; ?></p>
+                </div>
+            </div>
+
+            <div class="busiest-days">
+                <h3>Jours les plus actifs</h3>
+                <div class="days-grid">
+                    <?php 
+                    $days_fr = [
+                        'Monday' => 'Lundi',
+                        'Tuesday' => 'Mardi',
+                        'Wednesday' => 'Mercredi',
+                        'Thursday' => 'Jeudi',
+                        'Friday' => 'Vendredi',
+                        'Saturday' => 'Samedi',
+                        'Sunday' => 'Dimanche'
+                    ];
+                    foreach($stats['busiest_days'] as $day => $count): ?>
+                        <div class="day-stat">
+                            <span class="day"><?php echo $days_fr[$day]; ?></span>
+                            <span class="count"><?php echo $count; ?> programmes</span>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+
+            <h3>Destinations les plus fréquentes</h3>
+            <table class="wp-list-table widefat">
+                <?php foreach($stats['most_common_destinations'] as $dest => $count): ?>
+                    <tr>
+                        <td><?php echo esc_html($dest); ?></td>
+                        <td><?php echo $count; ?> programmes</td>
+                    </tr>
+                <?php endforeach; ?>
+            </table>
+        </div>
+        <!-- Colonne de droite -->
+        <div class="voyageurs-chart">
+            <h2>Répartition des destinations</h2>
+            <div style="position: relative; height: 300px;">
+                <canvas id="destinationsChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    jQuery(document).ready(function($) {
+        if (typeof Chart === 'undefined') {
+            console.error('Chart.js not loaded');
+            return;
+        }
+
+        const ctx = document.getElementById('destinationsChart').getContext('2d');
+        const destinations = <?php echo json_encode(array_keys($stats['most_common_destinations'])); ?>;
+        const counts = <?php echo json_encode(array_values($stats['most_common_destinations'])); ?>;
+        
+        new Chart(ctx, {
+            type: 'pie',
+            data: {
+                labels: destinations,
+                datasets: [{
+                    data: counts,
+                    backgroundColor: [
+                        '#1B8C8E',
+                        '#26A5A8',
+                        '#31BDBF',
+                        '#3CD4D7',
+                        '#47EBEE'
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'right',
+                        labels: {
+                            font: {
+                                family: 'Quicksand'
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    });
+    </script>
+    <?php
+}
 
 // Fonction principale d'affichage
 function display_voyageurs_page() {
@@ -176,7 +350,6 @@ function display_voyageurs_page() {
 
         return true;
     });
-
     // Pagination
     $per_page = 20;
     $total_files = count($filtered_files);
@@ -224,23 +397,23 @@ function display_voyageurs_page() {
                 <?php else: ?>
                     <?php foreach ($filtered_files as $file): 
                         $filename = basename($file);
-                        $filedate = date('Y-m-d H:i:s', filemtime($file));
-                        
-                        // Extraire la destination du nom de fichier
-                        preg_match('/(\d{4}-\d{2}-\d{2})_([^_]+)_/', $filename, $matches);
-                        $destination = $matches[2] ?? 'N/A';
-                    ?>
-                        <tr>
-                            <td><?php echo esc_html($filename); ?></td>
-                            <td><?php echo esc_html(urldecode($destination)); ?></td>
-                            <td><?php echo esc_html($filedate); ?></td>
-                            <td>
-                                <a href="<?php echo admin_url('admin.php?page=programme-txt-files&action=view&file=' . urlencode($filename)); ?>" class="button view-txt-file">Voir</a>
-                                <a href="<?php echo admin_url('admin.php?page=programme-txt-files&action=download&file=' . urlencode($filename)); ?>" class="button">Télécharger</a>
-                                <a href="<?php echo admin_url('admin.php?page=programme-txt-files&action=delete&file=' . urlencode($filename)); ?>" class="button delete-txt-file" onclick="return confirm('Voulez-vous vraiment supprimer ce programme ?');">Supprimer</a>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
+                         $filedate = date('Y-m-d H:i:s', filemtime($file));
+    
+                         // Correction du pattern pour extraire correctement la destination
+                         preg_match('/\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_([^_]+)_/', $filename, $matches);
+                     $destination = isset($matches[1]) ? urldecode($matches[1]) : 'N/A';
+                ?>
+                 <tr>
+                    <td><?php echo esc_html($filename); ?></td>
+                    <td><?php echo esc_html($destination); ?></td>
+                   <td><?php echo esc_html($filedate); ?></td>
+                <td>
+                  <a href="<?php echo admin_url('admin.php?page=programme-txt-files&action=view&file=' . urlencode($filename)); ?>" class="button view-txt-file">Voir</a>
+                <a href="<?php echo admin_url('admin.php?page=programme-txt-files&action=download&file=' . urlencode($filename)); ?>" class="button">Télécharger</a>
+                     <a href="<?php echo admin_url('admin.php?page=programme-txt-files&action=delete&file=' . urlencode($filename)); ?>" class="button delete-txt-file" onclick="return confirm('Voulez-vous vraiment supprimer ce programme ?');">Supprimer</a>
+                </td>
+                </tr>
+<?php endforeach; ?>
                 <?php endif; ?>
             </tbody>
         </table>
@@ -265,6 +438,7 @@ function display_voyageurs_page() {
     </script>
     <?php
 }
+
 
 // Fonction pour visualiser un fichier TXT
 function view_txt_file($file_path) {

@@ -330,6 +330,9 @@ function display_voyageurs_page() {
     $current_filter = isset($_GET['filter']) ? sanitize_text_field($_GET['filter']) : 'all';
     $search_term = isset($_GET['search']) ? sanitize_text_field($_GET['search']) : '';
 
+    // Ordre de tri
+    $current_order = isset($_GET['order']) ? sanitize_text_field($_GET['order']) : 'desc';
+
     // Filtrer et rechercher les fichiers
     $filtered_files = array_filter($files, function($file) use ($current_filter, $search_term) {
         $filename = basename($file);
@@ -350,15 +353,24 @@ function display_voyageurs_page() {
 
         return true;
     });
+
+    // Trier les fichiers par date de création
+    usort($filtered_files, function($a, $b) use ($current_order) {
+        $a_time = filemtime($a);
+        $b_time = filemtime($b);
+        return $current_order === 'asc' ? $a_time - $b_time : $b_time - $a_time;
+    });
+
     // Pagination
     $per_page = 20;
     $total_files = count($filtered_files);
     $total_pages = ceil($total_files / $per_page);
     $current_page = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
     $offset = ($current_page - 1) * $per_page;
-    $filtered_files = array_slice($filtered_files, $offset, $per_page);
+    $paginated_files = array_slice($filtered_files, $offset, $per_page);
 
     ?>
+    
     <div class="wrap">
         <h1>Les Programmes des Voyageurs</h1>
         
@@ -381,62 +393,92 @@ function display_voyageurs_page() {
         </form>
 
         <table class="wp-list-table widefat fixed striped">
-            <thead>
+    <thead>
+        <tr>
+            <th>Nom du fichier</th>
+            <th>Destination</th>
+            <th>
+                <a href="<?php echo add_query_arg(array('order' => $current_order === 'asc' ? 'desc' : 'asc')); ?>">
+                    Date de création
+                    <?php if ($current_order === 'asc'): ?>
+                        <span>▲</span>
+                    <?php else: ?>
+                        <span>▼</span>
+                    <?php endif; ?>
+                </a>
+            </th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        <?php if (empty($paginated_files)): ?>
+            <tr>
+                <td colspan="4">Aucun programme trouvé</td>
+            </tr>
+        <?php else: ?>
+            <?php foreach ($paginated_files as $file): 
+                $filename = basename($file);
+                $filedate = date('Y-m-d H:i:s', filemtime($file));
+
+                preg_match('/\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_([^_]+)_/', $filename, $matches);
+                $destination = isset($matches[1]) ? urldecode($matches[1]) : 'N/A';
+            ?>
                 <tr>
-                    <th>Nom du fichier</th>
-                    <th>Destination</th>
-                    <th>Date de création</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php if (empty($filtered_files)): ?>
-                    <tr>
-                        <td colspan="4">Aucun programme trouvé</td>
-                    </tr>
-                <?php else: ?>
-                    <?php foreach ($filtered_files as $file): 
-                        $filename = basename($file);
-                         $filedate = date('Y-m-d H:i:s', filemtime($file));
-    
-                         // Correction du pattern pour extraire correctement la destination
-                         preg_match('/\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_([^_]+)_/', $filename, $matches);
-                     $destination = isset($matches[1]) ? urldecode($matches[1]) : 'N/A';
-                ?>
-                 <tr>
                     <td><?php echo esc_html($filename); ?></td>
                     <td><?php echo esc_html($destination); ?></td>
-                   <td><?php echo esc_html($filedate); ?></td>
-                <td>
-                  <a href="<?php echo admin_url('admin.php?page=programme-txt-files&action=view&file=' . urlencode($filename)); ?>" class="button view-txt-file">Voir</a>
-                <a href="<?php echo admin_url('admin.php?page=programme-txt-files&action=download&file=' . urlencode($filename)); ?>" class="button">Télécharger</a>
-                     <a href="<?php echo admin_url('admin.php?page=programme-txt-files&action=delete&file=' . urlencode($filename)); ?>" class="button delete-txt-file" onclick="return confirm('Voulez-vous vraiment supprimer ce programme ?');">Supprimer</a>
-                </td>
+                    <td><?php echo esc_html($filedate); ?></td>
+                    <td>
+                        <a href="<?php echo admin_url('admin.php?page=programme-txt-files&action=view&file=' . urlencode($filename)); ?>" class="button view-txt-file">Voir</a>
+                        <a href="<?php echo admin_url('admin.php?page=programme-txt-files&action=download&file=' . urlencode($filename)); ?>" class="button">Télécharger</a>
+                        <a href="<?php echo admin_url('admin.php?page=programme-txt-files&action=delete&file=' . urlencode($filename)); ?>" class="button delete-txt-file" onclick="return confirm('Voulez-vous vraiment supprimer ce programme ?');">Supprimer</a>
+                    </td>
                 </tr>
-<?php endforeach; ?>
-                <?php endif; ?>
-            </tbody>
-        </table>
+            <?php endforeach; ?>
+        <?php endif; ?>
+    </tbody>
+</table>
+
+<div class="tablenav bottom">
+    <div class="tablenav-pages">
+        <?php
+        $base_url = add_query_arg(array(
+            'page' => 'programme-txt-files',
+            'filter' => $current_filter,
+            'search' => $search_term,
+            'order' => $current_order
+        ));
+        echo paginate_links(array(
+            'base' => $base_url . '%_%',
+            'format' => '&paged=%#%',
+            'current' => $current_page,
+            'total' => $total_pages,
+            'prev_text' => '&laquo;',
+            'next_text' => '&raquo;'
+        ));
+        ?>
     </div>
+</div>
 
-    <script>
-    jQuery(document).ready(function($) {
-        $('.view-txt-file').on('click', function(e) {
-            e.preventDefault();
-            var url = $(this).attr('href');
-            
-            $.get(url, function(response) {
-                $('body').append(response);
-            });
-        });
+</div>
 
-        $(document).on('click', '.media-modal-close, .media-modal-backdrop', function(e) {
-            e.preventDefault();
-            $('#txt-file-modal').remove();
+<script>
+jQuery(document).ready(function($) {
+    $('.view-txt-file').on('click', function(e) {
+        e.preventDefault();
+        var url = $(this).attr('href');
+        
+        $.get(url, function(response) {
+            $('body').append(response);
         });
     });
-    </script>
-    <?php
+
+    $(document).on('click', '.media-modal-close, .media-modal-backdrop', function(e) {
+        e.preventDefault();
+        $('#txt-file-modal').remove();
+    });
+});
+</script>
+<?php
 }
 
 

@@ -59,6 +59,34 @@ add_action( 'wp_enqueue_scripts', 'buddyboss_theme_child_scripts_styles', 9999 )
 
 // Add your own custom functions here
 
+function user_programs_rewrite_rules() {
+    add_rewrite_rule('^programme-txt/(.+)$', 'index.php?programme_txt=$matches[1]', 'top');
+}
+add_action('init', 'user_programs_rewrite_rules');
+
+function user_programs_query_vars($query_vars) {
+    $query_vars[] = 'programme_txt';
+    return $query_vars;
+}
+add_filter('query_vars', 'user_programs_query_vars');
+
+function user_programs_template_redirect() {
+    $programme_txt = get_query_var('programme_txt');
+    if ($programme_txt) {
+        $upload_dir = wp_upload_dir();
+        $file_path = $upload_dir['basedir'] . '/programme_txt/' . $programme_txt;
+        if (file_exists($file_path)) {
+            header('Content-Type: text/plain');
+            header('Content-Disposition: attachment; filename="' . $programme_txt . '"');
+            readfile($file_path);
+            exit;
+        } else {
+            wp_redirect(home_url());
+            exit;
+        }
+    }
+}
+add_action('template_redirect', 'user_programs_template_redirect');
 
 // Charger les dépendances principales
 function init_kwiik_core() {
@@ -71,7 +99,6 @@ add_action('wp_enqueue_scripts', 'init_kwiik_core');
 $module_files = array(
     'pdf-generator.php',
     'txt-generator.php',
-    'buddyboss-integration.php',
     'txt-admin.php',
     'email-sender.php',
     'buttons-display.php'
@@ -121,3 +148,4 @@ add_filter('register_default_role', function() {
 });
 
 ?>
+
